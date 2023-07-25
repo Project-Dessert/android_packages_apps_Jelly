@@ -1,60 +1,57 @@
 /*
- * Copyright (C) 2020-2023 The LineageOS Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-FileCopyrightText: 2020-2023 The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
  */
+
 package org.lineageos.jelly
 
 import android.Manifest
 import android.app.Activity
 import android.app.ActivityManager.TaskDescription
 import android.app.DownloadManager
-import android.content.*
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.DialogInterface
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
-import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.Drawable
 import android.graphics.drawable.Icon
-import android.graphics.drawable.TransitionDrawable
 import android.net.Uri
 import android.net.http.HttpResponseCache
-import android.os.*
+import android.os.Build
+import android.os.Bundle
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.os.ResultReceiver
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.text.TextUtils
 import android.util.Log
-import android.view.*
-import android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-import android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-import android.view.inputmethod.EditorInfo
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient.CustomViewCallback
-import android.widget.*
-import android.widget.AdapterView.OnItemClickListener
+import android.widget.FrameLayout
+import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.widget.PopupMenu
-import androidx.appcompat.widget.Toolbar
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.preference.PreferenceManager
 import com.google.android.material.appbar.AppBarLayout
+import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.CoroutineScope
@@ -64,9 +61,8 @@ import kotlinx.coroutines.withContext
 import org.lineageos.jelly.favorite.FavoriteActivity
 import org.lineageos.jelly.favorite.FavoriteProvider
 import org.lineageos.jelly.history.HistoryActivity
-import org.lineageos.jelly.suggestions.SuggestionsAdapter
-import org.lineageos.jelly.ui.SearchBarController
-import org.lineageos.jelly.ui.UrlBarController
+import org.lineageos.jelly.ui.MenuDialog
+import org.lineageos.jelly.ui.UrlBarLayout
 import org.lineageos.jelly.utils.IntentUtils
 import org.lineageos.jelly.utils.PrefsUtils
 import org.lineageos.jelly.utils.TabUtils.openInNewTab
@@ -77,16 +73,20 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 
-class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
-        SharedPreferences.OnSharedPreferenceChangeListener {
-    private lateinit var mCoordinator: CoordinatorLayout
-    private lateinit var mAppBar: AppBarLayout
-    private lateinit var mWebViewContainer: FrameLayout
-    private lateinit var mWebView: WebViewExt
-    private val mUrlResolvedReceiver: BroadcastReceiver = object : BroadcastReceiver() {
+class MainActivity : WebViewExtActivity(), SharedPreferences.OnSharedPreferenceChangeListener {
+    // Views
+    private val appBarLayout by lazy { findViewById<AppBarLayout>(R.id.appBarLayout) }
+    private val coordinatorLayout by lazy { findViewById<CoordinatorLayout>(R.id.coordinatorLayout) }
+    private val toolbar by lazy { findViewById<MaterialToolbar>(R.id.toolbar) }
+    private val urlBarLayout by lazy { findViewById<UrlBarLayout>(R.id.urlBarLayout) }
+    private val webView by lazy { findViewById<WebViewExt>(R.id.webView) }
+    private val webViewContainerLayout by lazy { findViewById<FrameLayout>(R.id.webViewContainerLayout) }
+
+    private val urlResolvedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (!intent.hasExtra(Intent.EXTRA_INTENT) ||
-                    !intent.hasExtra(Intent.EXTRA_RESULT_RECEIVER)) {
+                !intent.hasExtra(Intent.EXTRA_RESULT_RECEIVER)
+            ) {
                 return
             }
             val resolvedIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -97,13 +97,15 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
             }
             if (TextUtils.equals(packageName, resolvedIntent.getPackage())) {
                 val url: String = intent.getStringExtra(IntentUtils.EXTRA_URL)!!
-                mWebView.loadUrl(url)
+                webView.loadUrl(url)
             } else {
                 startActivity(resolvedIntent)
             }
             val receiver = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                intent.getParcelableExtra(Intent.EXTRA_RESULT_RECEIVER,
-                    ResultReceiver::class.java)!!
+                intent.getParcelableExtra(
+                    Intent.EXTRA_RESULT_RECEIVER,
+                    ResultReceiver::class.java
+                )!!
             } else {
                 @Suppress("Deprecation")
                 intent.getParcelableExtra(Intent.EXTRA_RESULT_RECEIVER)!!
@@ -111,72 +113,29 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
             receiver.send(Activity.RESULT_CANCELED, Bundle())
         }
     }
-    private lateinit var mLoadingProgress: ProgressBar
-    private lateinit var mSearchController: SearchBarController
-    private lateinit var mToolbarSearchBar: RelativeLayout
-    private var mLastActionBarDrawable: Drawable? = null
-    private var mThemeColor = 0
-    private var mUrlIcon: Bitmap? = null
-    private var mIncognito = false
-    private var mCustomView: View? = null
-    private var mFullScreenCallback: CustomViewCallback? = null
-    private var mSearchActive = false
+    private var urlIcon: Bitmap? = null
+    private var incognito = false
+    private var customView: View? = null
+    private var fullScreenCallback: CustomViewCallback? = null
     private val uiScope = CoroutineScope(Dispatchers.Main)
+    private lateinit var menuDialog: MenuDialog
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        val toolbar = findViewById<Toolbar>(R.id.toolbar)
         setSupportActionBar(toolbar)
-        mCoordinator = findViewById(R.id.coordinator_layout)
-        mAppBar = findViewById(R.id.app_bar_layout)
-        mWebViewContainer = findViewById(R.id.web_view_container)
-        mLoadingProgress = findViewById(R.id.load_progress)
-        mToolbarSearchBar = findViewById(R.id.toolbar_search_bar)
-        val autoCompleteTextView = findViewById<AutoCompleteTextView>(R.id.url_bar)
-        autoCompleteTextView.setAdapter(SuggestionsAdapter(this))
-        autoCompleteTextView.setOnEditorActionListener { _, actionId: Int, _ ->
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                UiUtils.hideKeyboard(autoCompleteTextView)
-                mWebView.loadUrl(autoCompleteTextView.text.toString())
-                autoCompleteTextView.clearFocus()
-                return@setOnEditorActionListener true
-            }
-            false
-        }
-        autoCompleteTextView.setOnKeyListener { _, keyCode: Int, _ ->
-            if (keyCode == KeyEvent.KEYCODE_ENTER) {
-                UiUtils.hideKeyboard(autoCompleteTextView)
-                mWebView.loadUrl(autoCompleteTextView.text.toString())
-                autoCompleteTextView.clearFocus()
-                return@setOnKeyListener true
-            }
-            false
-        }
-        autoCompleteTextView.onItemClickListener = OnItemClickListener { _, view: View, _, _ ->
-            val searchString = (view.findViewById<View>(R.id.title) as TextView).text
-            val url = searchString.toString()
-            UiUtils.hideKeyboard(autoCompleteTextView)
-            autoCompleteTextView.clearFocus()
-            mWebView.loadUrl(url)
-        }
         val intent = intent
         var url = intent.dataString
-        mIncognito = intent.getBooleanExtra(IntentUtils.EXTRA_INCOGNITO, false)
+        incognito = intent.getBooleanExtra(IntentUtils.EXTRA_INCOGNITO, false)
         var desktopMode = false
 
         // Restore from previous instance
-        if (savedInstanceState != null) {
-            mIncognito = savedInstanceState.getBoolean(IntentUtils.EXTRA_INCOGNITO, mIncognito)
-            if (url == null || url.isEmpty()) {
-                url = savedInstanceState.getString(IntentUtils.EXTRA_URL, null)
-            }
-            desktopMode = savedInstanceState.getBoolean(IntentUtils.EXTRA_DESKTOP_MODE, false)
-            mThemeColor = savedInstanceState.getInt(STATE_KEY_THEME_COLOR, 0)
-        }
-        if (mIncognito) {
-            autoCompleteTextView.imeOptions = autoCompleteTextView.imeOptions or
-                    EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+        savedInstanceState?.let {
+            incognito = it.getBoolean(IntentUtils.EXTRA_INCOGNITO, incognito)
+            url = url?.takeIf {
+                    url -> url.isNotEmpty()
+            } ?: it.getString(IntentUtils.EXTRA_URL, null)
+            desktopMode = it.getBoolean(IntentUtils.EXTRA_DESKTOP_MODE, false)
         }
 
         // Make sure prefs are set before loading them
@@ -184,22 +143,63 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
         val preferenceManager = PreferenceManager.getDefaultSharedPreferences(this)
         preferenceManager.registerOnSharedPreferenceChangeListener(this)
 
-        val incognitoIcon = findViewById<ImageView>(R.id.incognito)
-        incognitoIcon.visibility = if (mIncognito) View.VISIBLE else View.GONE
-        setupMenu()
-        val urlBarController = UrlBarController(autoCompleteTextView,
-                findViewById(R.id.secure))
-        mWebView = findViewById(R.id.web_view)
-        mWebView.init(this, urlBarController, mLoadingProgress, mIncognito)
-        mWebView.isDesktopMode = desktopMode
-        mWebView.loadUrl(url ?: PrefsUtils.getHomePage(this))
-        mSearchController = SearchBarController(mWebView,
-                findViewById(R.id.search_menu_edit),
-                findViewById(R.id.search_status),
-                findViewById(R.id.search_menu_prev),
-                findViewById(R.id.search_menu_next),
-                findViewById(R.id.search_menu_cancel),
-                this)
+        urlBarLayout.isIncognito = incognito
+
+        menuDialog = MenuDialog(this) { option: MenuDialog.Option ->
+            val isDesktop = webView.isDesktopMode
+
+            when (option) {
+                MenuDialog.Option.BACK -> webView.goBack()
+                MenuDialog.Option.FORWARD -> webView.goForward()
+                MenuDialog.Option.NEW_TAB -> openInNewTab(this, null, false)
+                MenuDialog.Option.NEW_PRIVATE_TAB -> openInNewTab(this, null, true)
+                MenuDialog.Option.REFRESH -> webView.reload()
+                MenuDialog.Option.ADD_TO_FAVORITE -> uiScope.launch {
+                    webView.title?.let { title ->
+                        webView.url?.let { url ->
+                            setAsFavorite(title, url)
+                        }
+                    }
+                }
+                MenuDialog.Option.SHARE -> {
+                    // Delay a bit to allow popup menu hide animation to play
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        webView.url?.let { url -> shareUrl(url) }
+                    }, 300)
+                }
+                MenuDialog.Option.FIND_IN_PAGE -> {
+                    // Run the search setup
+                    showSearch()
+                }
+                MenuDialog.Option.FAVORITES -> startActivity(Intent(this, FavoriteActivity::class.java))
+                MenuDialog.Option.HISTORY -> startActivity(Intent(this, HistoryActivity::class.java))
+                MenuDialog.Option.DOWNLOADS -> startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+                MenuDialog.Option.ADD_TO_HOME_SCREEN -> addShortcut()
+                MenuDialog.Option.PRINT -> {
+                    val printManager = getSystemService(PrintManager::class.java)
+                    val documentName = "Jelly document"
+                    val printAdapter = webView.createPrintDocumentAdapter(documentName)
+                    printManager.print(
+                        documentName, printAdapter,
+                        PrintAttributes.Builder().build()
+                    )
+                }
+                MenuDialog.Option.DESKTOP_VIEW -> {
+                    webView.isDesktopMode = !isDesktop
+                    menuDialog.isDesktopMode = !isDesktop
+                }
+                MenuDialog.Option.SETTINGS -> startActivity(Intent(this, SettingsActivity::class.java))
+            }
+            menuDialog.dismiss()
+        }
+        urlBarLayout.onMoreButtonClickCallback = {
+            UiUtils.hideKeyboard(window, urlBarLayout)
+            menuDialog.showAsDropdownMenu(urlBarLayout, UiUtils.isReachModeEnabled(this))
+        }
+
+        webView.init(this, urlBarLayout, incognito)
+        webView.isDesktopMode = desktopMode
+        webView.loadUrl(url ?: PrefsUtils.getHomePage(this))
         setUiMode()
         try {
             val httpCacheDir = File(cacheDir, "suggestion_responses")
@@ -212,29 +212,31 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
 
     override fun onStart() {
         super.onStart()
-        registerReceiver(mUrlResolvedReceiver, IntentFilter(IntentUtils.EVENT_URL_RESOLVED))
+        registerReceiver(urlResolvedReceiver, IntentFilter(IntentUtils.EVENT_URL_RESOLVED))
     }
 
     override fun onStop() {
         CookieManager.getInstance().flush()
-        unregisterReceiver(mUrlResolvedReceiver)
+        unregisterReceiver(urlResolvedReceiver)
         HttpResponseCache.getInstalled().flush()
         super.onStop()
     }
 
     public override fun onPause() {
-        mWebView.onPause()
+        webView.onPause()
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
-        mWebView.onResume()
+        webView.onResume()
         CookieManager.getInstance()
-                .setAcceptCookie(!mWebView.isIncognito && PrefsUtils.getCookie(this))
+            .setAcceptCookie(!webView.isIncognito && PrefsUtils.getCookie(this))
         if (PrefsUtils.getLookLock(this)) {
-            window.setFlags(WindowManager.LayoutParams.FLAG_SECURE,
-                    WindowManager.LayoutParams.FLAG_SECURE)
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+            )
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
@@ -242,14 +244,14 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
 
     override fun onBackPressed() {
         when {
-            mSearchActive -> {
-                mSearchController.onCancel()
+            urlBarLayout.currentMode == UrlBarLayout.UrlBarMode.SEARCH -> {
+                urlBarLayout.currentMode = UrlBarLayout.UrlBarMode.URL
             }
-            mCustomView != null -> {
+            customView != null -> {
                 onHideCustomView()
             }
-            mWebView.canGoBack() -> {
-                mWebView.goBack()
+            webView.canGoBack() -> {
+                webView.goBack()
             }
             else -> {
                 super.onBackPressed()
@@ -257,12 +259,14 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>,
-                                            results: IntArray) {
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<String>,
+        results: IntArray
+    ) {
         super.onRequestPermissionsResult(requestCode, permissions, results)
         when (requestCode) {
             LOCATION_PERM_REQ -> if (hasLocationPermission()) {
-                mWebView.reload()
+                webView.reload()
             }
         }
     }
@@ -271,110 +275,30 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
         super.onSaveInstanceState(outState)
 
         // Preserve webView status
-        outState.putString(IntentUtils.EXTRA_URL, mWebView.url)
-        outState.putBoolean(IntentUtils.EXTRA_INCOGNITO, mWebView.isIncognito)
-        outState.putBoolean(IntentUtils.EXTRA_DESKTOP_MODE, mWebView.isDesktopMode)
-        outState.putInt(STATE_KEY_THEME_COLOR, mThemeColor)
-    }
-
-    private fun setupMenu() {
-        val menu = findViewById<ImageButton>(R.id.search_menu)
-        menu.setOnClickListener {
-            val isDesktop = mWebView.isDesktopMode
-            val wrapper = ContextThemeWrapper(this,
-                    R.style.AppTheme_PopupMenuOverlapAnchor)
-            val popupMenu = PopupMenu(wrapper, menu, Gravity.NO_GRAVITY,
-                    R.attr.actionOverflowMenuStyle, 0)
-            popupMenu.inflate(R.menu.menu_main)
-            val desktopMode = popupMenu.menu.findItem(R.id.desktop_mode)
-            desktopMode.title = getString(if (isDesktop) {
-                R.string.menu_mobile_mode
-            } else {
-                R.string.menu_desktop_mode
-            })
-            desktopMode.icon = ContextCompat.getDrawable(this, if (isDesktop) {
-                R.drawable.ic_mobile
-            } else {
-                R.drawable.ic_desktop
-            })
-            popupMenu.setOnMenuItemClickListener { item: MenuItem ->
-                when (item.itemId) {
-                    R.id.menu_new -> openInNewTab(this, null, false)
-                    R.id.menu_incognito -> openInNewTab(this, null, true)
-                    R.id.menu_reload -> mWebView.reload()
-                    R.id.menu_add_favorite -> uiScope.launch {
-                        setAsFavorite(mWebView.title, mWebView.url)
-                    }
-                    R.id.menu_share ->
-                        // Delay a bit to allow popup menu hide animation to play
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            shareUrl(mWebView.url)
-                        }, 300)
-                    R.id.menu_search ->
-                        // Run the search setup
-                        showSearch()
-                    R.id.menu_favorite -> startActivity(Intent(this, FavoriteActivity::class.java))
-                    R.id.menu_history -> startActivity(Intent(this, HistoryActivity::class.java))
-                    R.id.menu_shortcut -> addShortcut()
-                    R.id.menu_print -> {
-                        val printManager = getSystemService(PrintManager::class.java)
-                        val documentName = "Jelly document"
-                        val printAdapter = mWebView.createPrintDocumentAdapter(documentName)
-                        printManager.print(documentName, printAdapter,
-                                PrintAttributes.Builder().build())
-                    }
-                    R.id.desktop_mode -> {
-                        mWebView.isDesktopMode = !isDesktop
-                        desktopMode.title = getString(if (isDesktop) {
-                            R.string.menu_desktop_mode
-                        } else {
-                            R.string.menu_mobile_mode
-                        })
-                        desktopMode.icon = ContextCompat.getDrawable(this, if (isDesktop) {
-                            R.drawable.ic_desktop
-                        } else {
-                            R.drawable.ic_mobile
-                        })
-                    }
-                    R.id.menu_settings -> startActivity(Intent(this, SettingsActivity::class.java))
-                }
-                true
-            }
-
-            popupMenu.setForceShowIcon(true)
-            popupMenu.show()
-        }
+        outState.putString(IntentUtils.EXTRA_URL, webView.url)
+        outState.putBoolean(IntentUtils.EXTRA_INCOGNITO, webView.isIncognito)
+        outState.putBoolean(IntentUtils.EXTRA_DESKTOP_MODE, webView.isDesktopMode)
     }
 
     private fun showSearch() {
-        mToolbarSearchBar.visibility = View.GONE
-        findViewById<View>(R.id.toolbar_search_page).visibility = View.VISIBLE
-        mSearchController.onShow()
-        mSearchActive = true
+        urlBarLayout.currentMode = UrlBarLayout.UrlBarMode.SEARCH
     }
 
-    override fun onCancelSearch() {
-        findViewById<View>(R.id.toolbar_search_page).visibility = View.GONE
-        mToolbarSearchBar.visibility = View.VISIBLE
-        mSearchActive = false
-    }
-
-    private fun shareUrl(url: String?) {
-        if (url == null) {
-            return
-        }
+    private fun shareUrl(url: String) {
         val intent = Intent(Intent.ACTION_SEND)
         intent.putExtra(Intent.EXTRA_TEXT, url)
-        if (PrefsUtils.getAdvancedShare(this) && url == mWebView.url) {
+        if (PrefsUtils.getAdvancedShare(this) && url == webView.url) {
             val file = File(cacheDir, System.currentTimeMillis().toString() + ".png")
             try {
                 FileOutputStream(file).use { out ->
-                    val bm = mWebView.snap
+                    val bm = webView.snap
                     bm.compress(Bitmap.CompressFormat.PNG, 70, out)
                     out.flush()
                     out.close()
-                    intent.putExtra(Intent.EXTRA_STREAM,
-                            FileProvider.getUriForFile(this, PROVIDER, file))
+                    intent.putExtra(
+                        Intent.EXTRA_STREAM,
+                        FileProvider.getUriForFile(this, PROVIDER, file)
+                    )
                     intent.type = "image/png"
                     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
@@ -388,20 +312,17 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
     }
 
 
-    private suspend fun setAsFavorite(title: String?, url: String?) {
-        if (title == null || url == null) {
-            return
-        }
-        val hasValidIcon = mUrlIcon != null && !mUrlIcon!!.isRecycled
-        var color = if (hasValidIcon) UiUtils.getColor(mUrlIcon, false) else Color.TRANSPARENT
-        if (color == Color.TRANSPARENT) {
-            color = ContextCompat.getColor(this, R.color.colorAccent)
-        }
+    private suspend fun setAsFavorite(title: String, url: String) {
+        val color = urlIcon?.takeUnless { it.isRecycled }?.let { bitmap ->
+            UiUtils.getColor(bitmap, false).takeUnless { it == Color.TRANSPARENT }
+        } ?: ContextCompat.getColor(this, R.color.material_dynamic_primary50)
         withContext(Dispatchers.Default) {
             FavoriteProvider.addOrUpdateItem(contentResolver, title, url, color)
             withContext(Dispatchers.Main) {
-                Snackbar.make(mCoordinator, getString(R.string.favorite_added),
-                        Snackbar.LENGTH_LONG).show()
+                Snackbar.make(
+                    coordinatorLayout, getString(R.string.favorite_added),
+                    Snackbar.LENGTH_LONG
+                ).show()
             }
         }
     }
@@ -409,17 +330,19 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
     override fun downloadFileAsk(url: String?, contentDisposition: String?, mimeType: String?) {
         val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
         AlertDialog.Builder(this)
-                .setTitle(R.string.download_title)
-                .setMessage(getString(R.string.download_message, fileName))
-                .setPositiveButton(getString(R.string.download_positive)
-                ) { _: DialogInterface?, _: Int -> fetchFile(url, fileName) }
-                .setNegativeButton(getString(R.string.dismiss)
-                ) { dialog: DialogInterface, _: Int -> dialog.dismiss() }
-                .show()
+            .setTitle(R.string.download_title)
+            .setMessage(getString(R.string.download_message, fileName))
+            .setPositiveButton(
+                getString(R.string.download_positive)
+            ) { _: DialogInterface?, _: Int -> fetchFile(url, fileName) }
+            .setNegativeButton(
+                getString(R.string.dismiss)
+            ) { dialog: DialogInterface, _: Int -> dialog.dismiss() }
+            .show()
     }
 
     private fun fetchFile(url: String?, fileName: String) {
-        val request: DownloadManager.Request = try {
+        val request = try {
             DownloadManager.Request(Uri.parse(url))
         } catch (e: IllegalArgumentException) {
             Log.e(TAG, "Cannot download non http or https scheme")
@@ -433,22 +356,26 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
             request.allowScanningByMediaScanner()
         }
         request.setNotificationVisibility(
-                DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+        )
         request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-        request.setMimeType(MimeTypeMap.getSingleton().getMimeTypeFromExtension(
-                MimeTypeMap.getFileExtensionFromUrl(url)))
+        request.setMimeType(
+            MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                MimeTypeMap.getFileExtensionFromUrl(url)
+            )
+        )
         getSystemService(DownloadManager::class.java).enqueue(request)
     }
 
     override fun showSheetMenu(url: String, shouldAllowDownload: Boolean) {
         val sheet = BottomSheetDialog(this)
         val view = layoutInflater.inflate(R.layout.sheet_actions, LinearLayout(this))
-        val tabLayout = view.findViewById<View>(R.id.sheet_new_tab)
-        val shareLayout = view.findViewById<View>(R.id.sheet_share)
-        val favouriteLayout = view.findViewById<View>(R.id.sheet_favourite)
-        val downloadLayout = view.findViewById<View>(R.id.sheet_download)
+        val tabLayout = view.findViewById<View>(R.id.sheetNewTabLayout)
+        val shareLayout = view.findViewById<View>(R.id.sheetShareLayout)
+        val favouriteLayout = view.findViewById<View>(R.id.sheetFavouriteLayout)
+        val downloadLayout = view.findViewById<View>(R.id.sheetDownloadLayout)
         tabLayout.setOnClickListener {
-            openInNewTab(this, url, mIncognito)
+            openInNewTab(this, url, incognito)
             sheet.dismiss()
         }
         shareLayout.setOnClickListener {
@@ -484,158 +411,73 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
 
 
     override fun onFaviconLoaded(favicon: Bitmap?) {
-        if (favicon == null || favicon.isRecycled) {
-            return
-        }
-        mUrlIcon = favicon.copy(favicon.config, true)
-        applyThemeColor(UiUtils.getColor(favicon, mWebView.isIncognito))
-        if (!favicon.isRecycled) {
-            favicon.recycle()
+        favicon?.let {
+            if (it.isRecycled) {
+                return
+            }
+            urlIcon = it.copy(it.config, true)
+            updateTaskDescription()
+            if (!it.isRecycled) {
+                it.recycle()
+            }
         }
     }
 
-    @Suppress("DEPRECATION")
-    private fun applyThemeColor(color: Int) {
-        var localColor = color
-        val hasValidColor = localColor != Color.TRANSPARENT
-        mThemeColor = localColor
-        localColor = themeColorWithFallback
-        val actionBar = supportActionBar
-        if (actionBar != null) {
-            val newDrawable = ColorDrawable(localColor)
-            if (mLastActionBarDrawable != null) {
-                val layers = arrayOf(mLastActionBarDrawable!!, newDrawable)
-                val transition = TransitionDrawable(layers)
-                transition.isCrossFadeEnabled = true
-                transition.startTransition(200)
-                actionBar.setBackgroundDrawable(transition)
-            } else {
-                actionBar.setBackgroundDrawable(newDrawable)
-            }
-            mLastActionBarDrawable = newDrawable
-        }
-        val progressColor = if (hasValidColor) {
-            if (UiUtils.isColorLight(localColor)) Color.BLACK else Color.WHITE
-        } else {
-            ContextCompat.getColor(this, R.color.colorAccent)
-        }
-        mLoadingProgress.progressTintList = ColorStateList.valueOf(progressColor)
-        mLoadingProgress.postInvalidate()
-        val isReachMode = UiUtils.isReachModeEnabled(this)
-        if (isReachMode) {
-            window.navigationBarColor = localColor
-        } else {
-            window.statusBarColor = localColor
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.let {
-                if (UiUtils.isColorLight(localColor)) {
-                    if (isReachMode) {
-                        it.setSystemBarsAppearance(APPEARANCE_LIGHT_NAVIGATION_BARS,
-                                APPEARANCE_LIGHT_NAVIGATION_BARS)
-                    } else {
-                        it.setSystemBarsAppearance(APPEARANCE_LIGHT_STATUS_BARS,
-                                APPEARANCE_LIGHT_STATUS_BARS)
-                    }
-                } else {
-                    if (isReachMode) {
-                        it.setSystemBarsAppearance(0, APPEARANCE_LIGHT_NAVIGATION_BARS)
-                    } else {
-                        it.setSystemBarsAppearance(0, APPEARANCE_LIGHT_STATUS_BARS)
-                    }
-                }
-            }
-        } else {
-            var flags = window.decorView.systemUiVisibility
-            flags = if (UiUtils.isColorLight(localColor)) {
-                flags or if (isReachMode) {
-                    View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-                } else {
-                    View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-                }
-            } else {
-                flags and if (isReachMode) {
-                    View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
-                } else {
-                    View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-                }
-            }
-            window.decorView.systemUiVisibility = flags
-        }
-        setTaskDescription(TaskDescription(mWebView.title,
-                mUrlIcon, localColor))
+    private fun updateTaskDescription() {
+        setTaskDescription(
+            TaskDescription(
+                webView.title,
+                urlIcon, Color.WHITE
+            )
+        )
     }
-
-    @Suppress("DEPRECATION")
-    private fun resetSystemUIColor() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.let {
-                it.setSystemBarsAppearance(0, APPEARANCE_LIGHT_NAVIGATION_BARS)
-                it.setSystemBarsAppearance(0, APPEARANCE_LIGHT_STATUS_BARS)
-            }
-        } else {
-            var flags = window.decorView.systemUiVisibility
-            flags = flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-            flags = flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
-            window.decorView.systemUiVisibility = flags
-        }
-        window.statusBarColor = Color.BLACK
-        window.navigationBarColor = Color.BLACK
-    }
-
-    private val themeColorWithFallback: Int
-        get() = if (mThemeColor != Color.TRANSPARENT) {
-            mThemeColor
-        } else ContextCompat.getColor(this,
-                if (mWebView.isIncognito) R.color.colorIncognito else R.color.colorPrimary)
 
     override fun onShowCustomView(view: View?, callback: CustomViewCallback) {
-        if (mCustomView != null) {
+        customView?.let {
             callback.onCustomViewHidden()
             return
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        mCustomView = view
-        mFullScreenCallback = callback
+        customView = view
+        fullScreenCallback = callback
         setImmersiveMode(true)
-        mCustomView!!.setBackgroundColor(ContextCompat.getColor(this, android.R.color.black))
-        addContentView(mCustomView, ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        mAppBar.visibility = View.GONE
-        mWebViewContainer.visibility = View.GONE
+        customView?.setBackgroundColor(ContextCompat.getColor(this, android.R.color.black))
+        addContentView(
+            customView, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        appBarLayout.visibility = View.GONE
+        webViewContainerLayout.visibility = View.GONE
     }
 
     override fun onHideCustomView() {
-        if (mCustomView == null) {
-            return
-        }
+        val customView = customView ?: return
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setImmersiveMode(false)
-        mAppBar.visibility = View.VISIBLE
-        mWebViewContainer.visibility = View.VISIBLE
-        val viewGroup = mCustomView!!.parent as ViewGroup
-        viewGroup.removeView(mCustomView)
-        mFullScreenCallback!!.onCustomViewHidden()
-        mFullScreenCallback = null
-        mCustomView = null
+        appBarLayout.visibility = View.VISIBLE
+        webViewContainerLayout.visibility = View.VISIBLE
+        val viewGroup = customView.parent as ViewGroup
+        viewGroup.removeView(customView)
+        fullScreenCallback?.onCustomViewHidden()
+        fullScreenCallback = null
+        this.customView = null
     }
 
     private fun addShortcut() {
-        val intent = Intent(this, MainActivity::class.java)
-        intent.data = Uri.parse(mWebView.url)
-        intent.action = Intent.ACTION_MAIN
-        val launcherIcon: Icon = if (mUrlIcon != null) {
-            Icon.createWithBitmap(
-                    UiUtils.getShortcutIcon(mUrlIcon!!, themeColorWithFallback))
-        } else {
-            Icon.createWithResource(this, R.mipmap.ic_launcher)
+        val intent = Intent(this, MainActivity::class.java).apply {
+            data = Uri.parse(webView.url)
+            action = Intent.ACTION_MAIN
         }
-        val title = mWebView.title.toString()
+        val launcherIcon = urlIcon?.let {
+            Icon.createWithBitmap(UiUtils.getShortcutIcon(it, Color.WHITE))
+        } ?: Icon.createWithResource(this, R.mipmap.ic_launcher)
+        val title = webView.title.toString()
         val shortcutInfo = ShortcutInfo.Builder(this, title)
-                .setShortLabel(title)
-                .setIcon(launcherIcon)
-                .setIntent(intent)
-                .build()
+            .setShortLabel(title)
+            .setIcon(launcherIcon)
+            .setIntent(intent)
+            .build()
         getSystemService(ShortcutManager::class.java).requestPinShortcut(shortcutInfo, null)
     }
 
@@ -673,7 +515,7 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        setImmersiveMode(hasFocus && mCustomView != null)
+        setImmersiveMode(hasFocus && customView != null)
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
@@ -684,53 +526,33 @@ class MainActivity : WebViewExtActivity(), SearchBarController.OnCancelListener,
 
     private fun setUiMode() {
         // Now you don't see it
-        mCoordinator.alpha = 0f
+        coordinatorLayout.alpha = 0f
         // Magic happens
         changeUiMode(UiUtils.isReachModeEnabled(this))
         // Now you see it
-        mCoordinator.alpha = 1f
+        coordinatorLayout.alpha = 1f
     }
 
     private fun changeUiMode(isReachMode: Boolean) {
-        val appBarParams = mAppBar.layoutParams as CoordinatorLayout.LayoutParams
-        val containerParams = mWebViewContainer.layoutParams as CoordinatorLayout.LayoutParams
-        val progressParams = mLoadingProgress.layoutParams as RelativeLayout.LayoutParams
-        val searchBarParams = mToolbarSearchBar.layoutParams as RelativeLayout.LayoutParams
-        val margin = UiUtils.getDimenAttr(this, R.style.AppTheme,
-                android.R.attr.actionBarSize).toInt()
+        val appBarParams = appBarLayout.layoutParams as CoordinatorLayout.LayoutParams
+        val containerParams = webViewContainerLayout.layoutParams as CoordinatorLayout.LayoutParams
+        val margin = resources.getDimension(R.dimen.m3_appbar_size_compact).toInt()
         if (isReachMode) {
             appBarParams.gravity = Gravity.BOTTOM
             containerParams.setMargins(0, 0, 0, margin)
-            progressParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            progressParams.addRule(RelativeLayout.ALIGN_PARENT_TOP, RelativeLayout.TRUE)
-            searchBarParams.removeRule(RelativeLayout.ABOVE)
-            searchBarParams.addRule(RelativeLayout.BELOW, R.id.load_progress)
         } else {
             appBarParams.gravity = Gravity.TOP
             containerParams.setMargins(0, margin, 0, 0)
-            progressParams.removeRule(RelativeLayout.ALIGN_PARENT_TOP)
-            progressParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM, RelativeLayout.TRUE)
-            searchBarParams.removeRule(RelativeLayout.BELOW)
-            searchBarParams.addRule(RelativeLayout.ABOVE, R.id.load_progress)
         }
-        mAppBar.layoutParams = appBarParams
-        mAppBar.invalidate()
-        mWebViewContainer.layoutParams = containerParams
-        mWebViewContainer.invalidate()
-        mLoadingProgress.layoutParams = progressParams
-        mLoadingProgress.invalidate()
-        mToolbarSearchBar.layoutParams = searchBarParams
-        mToolbarSearchBar.invalidate()
-        resetSystemUIColor()
-        if (mThemeColor != 0) {
-            applyThemeColor(mThemeColor)
-        }
+        appBarLayout.layoutParams = appBarParams
+        appBarLayout.invalidate()
+        webViewContainerLayout.layoutParams = containerParams
+        webViewContainerLayout.invalidate()
     }
 
     companion object {
         private val TAG = MainActivity::class.java.simpleName
         private const val PROVIDER = "org.lineageos.jelly.fileprovider"
-        private const val STATE_KEY_THEME_COLOR = "theme_color"
         private const val LOCATION_PERM_REQ = 424
     }
 }

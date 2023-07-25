@@ -1,22 +1,16 @@
 /*
- * Copyright (C) 2020 The LineageOS Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-FileCopyrightText: 2020 The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
  */
+
 package org.lineageos.jelly
 
 import android.content.DialogInterface
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
+import android.view.MenuItem
+import android.view.View
 import android.webkit.CookieManager
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -30,23 +24,52 @@ import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceManager
 import androidx.preference.SwitchPreference
 import org.lineageos.jelly.utils.PrefsUtils
+import kotlin.reflect.safeCast
 
 class SettingsActivity : AppCompatActivity() {
+    // Views
+    private val toolbar by lazy { findViewById<Toolbar>(R.id.toolbar) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
-        val toolbar = findViewById<Toolbar>(R.id.toolbar)
+        if (savedInstanceState == null) {
+            supportFragmentManager
+                .beginTransaction()
+                .replace(R.id.settings, SettingsFragment())
+                .commit()
+        }
+
         setSupportActionBar(toolbar)
-        toolbar.setNavigationIcon(R.drawable.ic_back)
-        toolbar.setNavigationOnClickListener { finish() }
+        supportActionBar?.apply {
+            setDisplayHomeAsUpEnabled(true)
+            setDisplayShowHomeEnabled(true)
+        }
     }
 
-    class MyPreferenceFragment : PreferenceFragmentCompat(), Preference.OnPreferenceChangeListener {
+    override fun onOptionsItemSelected(item: MenuItem) = when (item.itemId) {
+        android.R.id.home -> {
+            finish()
+            true
+        }
+        else -> {
+            super.onOptionsItemSelected(item)
+        }
+    }
+
+    class SettingsFragment : PreferenceFragmentCompat(), Preference.OnPreferenceChangeListener {
+        override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+            super.onViewCreated(view, savedInstanceState)
+
+            setDivider(ColorDrawable(Color.TRANSPARENT))
+            setDividerHeight(0)
+        }
+
         override fun onCreatePreferences(savedInstance: Bundle?, rootKey: String?) {
             // Load the preferences from an XML resource
             setPreferencesFromResource(R.xml.settings, rootKey)
 
-            findPreference<Preference>("key_home_page")?.let{
+            findPreference<Preference>("key_home_page")?.let {
                 bindPreferenceSummaryToValue(it, getString(R.string.default_home_page))
             }
             if (resources.getBoolean(R.bool.is_tablet)) {
@@ -59,21 +82,23 @@ class SettingsActivity : AppCompatActivity() {
         private fun bindPreferenceSummaryToValue(preference: Preference, def: String) {
             preference.onPreferenceChangeListener = this
 
-            onPreferenceChange(preference,
-                    PreferenceManager
-                            .getDefaultSharedPreferences(preference.context)
-                            .getString(preference.key, def))
+            onPreferenceChange(
+                preference,
+                PreferenceManager
+                    .getDefaultSharedPreferences(preference.context)
+                    .getString(preference.key, def)
+            )
         }
 
         override fun onPreferenceChange(preference: Preference, value: Any?): Boolean {
             val stringValue = value.toString()
 
-            if (preference is ListPreference) {
-                val prefIndex = preference.findIndexOfValue(stringValue)
+            ListPreference::class.safeCast(preference)?.also {
+                val prefIndex = it.findIndexOfValue(stringValue)
                 if (prefIndex >= 0) {
-                    preference.setSummary(preference.entries[prefIndex])
+                    preference.summary = it.entries[prefIndex]
                 }
-            } else {
+            } ?: run {
                 preference.summary = stringValue
             }
             return true
@@ -87,8 +112,10 @@ class SettingsActivity : AppCompatActivity() {
                 }
                 "key_cookie_clear" -> {
                     CookieManager.getInstance().removeAllCookies(null)
-                    Toast.makeText(preference.context, getString(R.string.pref_cookie_clear_done),
-                            Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        preference.context, getString(R.string.pref_cookie_clear_done),
+                        Toast.LENGTH_LONG
+                    ).show()
                     true
                 }
                 else -> {
@@ -101,29 +128,33 @@ class SettingsActivity : AppCompatActivity() {
             val builder = AlertDialog.Builder(preference.context)
             val alertDialog = builder.create()
             val inflater = alertDialog.layoutInflater
-            val homepageView = inflater.inflate(R.layout.dialog_homepage_edit,
-                    LinearLayout(preference.context))
-            val editText = homepageView.findViewById<EditText>(R.id.homepage_edit_url)
-            editText.setText(PrefsUtils.getHomePage(preference.context))
+            val homepageView = inflater.inflate(
+                R.layout.dialog_homepage_edit,
+                LinearLayout(preference.context)
+            )
+            val homepageUrlEditText = homepageView.findViewById<EditText>(R.id.homepageUrlEditText)
+            homepageUrlEditText.setText(PrefsUtils.getHomePage(preference.context))
             builder.setTitle(R.string.pref_start_page_dialog_title)
-                    .setMessage(R.string.pref_start_page_dialog_message)
-                    .setView(homepageView)
-                    .setPositiveButton(android.R.string.ok
-                    ) { _: DialogInterface?, _: Int ->
-                        val url = editText.text.toString().ifEmpty {
-                            getString(R.string.default_home_page)
-                        }
-                        PrefsUtils.setHomePage(preference.context, url)
-                        preference.summary = url
+                .setMessage(R.string.pref_start_page_dialog_message)
+                .setView(homepageView)
+                .setPositiveButton(
+                    android.R.string.ok
+                ) { _: DialogInterface?, _: Int ->
+                    val url = homepageUrlEditText.text.toString().ifEmpty {
+                        getString(R.string.default_home_page)
                     }
-                    .setNeutralButton(R.string.pref_start_page_dialog_reset
-                    ) { _: DialogInterface?, _: Int ->
-                        val url = getString(R.string.default_home_page)
-                        PrefsUtils.setHomePage(preference.context, url)
-                        preference.summary = url
-                    }
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show()
+                    PrefsUtils.setHomePage(preference.context, url)
+                    preference.summary = url
+                }
+                .setNeutralButton(
+                    R.string.pref_start_page_dialog_reset
+                ) { _: DialogInterface?, _: Int ->
+                    val url = getString(R.string.default_home_page)
+                    PrefsUtils.setHomePage(preference.context, url)
+                    preference.summary = url
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
         }
     }
 }

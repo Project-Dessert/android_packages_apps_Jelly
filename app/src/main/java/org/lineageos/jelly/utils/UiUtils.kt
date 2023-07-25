@@ -1,33 +1,27 @@
 /*
- * Copyright (C) 2020 The LineageOS Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-FileCopyrightText: 2020 The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
  */
+
 package org.lineageos.jelly.utils
 
 import android.content.Context
 import android.content.res.Resources
-import android.graphics.*
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.Rect
 import android.util.TypedValue
 import android.view.View
-import android.view.inputmethod.InputMethodManager
-import android.widget.ImageButton
-import androidx.annotation.AttrRes
-import androidx.annotation.StyleRes
+import android.view.Window
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.palette.graphics.Palette
 import androidx.preference.PreferenceManager
-import org.lineageos.jelly.R
 
 object UiUtils {
     fun isColorLight(color: Int): Boolean {
@@ -39,15 +33,17 @@ object UiUtils {
         return hsl[2] > 0.5f
     }
 
-    fun getColor(bitmap: Bitmap?, incognito: Boolean): Int {
-        val palette = Palette.from(bitmap!!).generate()
+    fun getColor(bitmap: Bitmap, incognito: Boolean): Int {
+        val palette = Palette.from(bitmap).generate()
         val fallback = Color.TRANSPARENT
         return if (incognito) palette.getMutedColor(fallback) else palette.getVibrantColor(fallback)
     }
 
     fun getShortcutIcon(bitmap: Bitmap, themeColor: Int): Bitmap {
-        val out = Bitmap.createBitmap(bitmap.width, bitmap.width,
-                Bitmap.Config.ARGB_8888)
+        val out = Bitmap.createBitmap(
+            bitmap.width, bitmap.width,
+            Bitmap.Config.ARGB_8888
+        )
         val canvas = Canvas(out)
         val paint = Paint()
         val rect = Rect(0, 0, bitmap.width, bitmap.width)
@@ -61,72 +57,31 @@ object UiUtils {
         return Bitmap.createScaledBitmap(out, 192, 192, true)
     }
 
-    fun getPositionInTime(timeMilliSec: Long): Int {
-        val diff = System.currentTimeMillis() - timeMilliSec
-        val hour = 1000 * 60 * 60.toLong()
-        val day = hour * 24
-        val week = day * 7
-        val month = day * 30
-        return if (hour > diff) {
-            0
-        } else {
-            when {
-                day > diff -> {
-                    1
-                }
-                week > diff -> 2
-                month > diff -> 3
-                else -> 4
-            }
-        }
-    }
-
-    fun dpToPx(res: Resources, dp: Float): Float {
-        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, res.displayMetrics)
-    }
-
-    /**
-     * Shows the software keyboard.
-     *
-     * @param view The currently focused [View], which would receive soft keyboard input.
-     */
-    fun showKeyboard(view: View) {
-        val imm = view.context.getSystemService(InputMethodManager::class.java)
-        imm.showSoftInput(view, 0)
-    }
+    fun dpToPx(res: Resources, dp: Float) =
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, res.displayMetrics)
 
     /**
      * Hides the keyboard.
      *
+     * @param window the [Window] where the view is attached to.
      * @param view The [View] that is currently accepting input.
      */
-    fun hideKeyboard(view: View) {
-        val imm = view.context.getSystemService(InputMethodManager::class.java)
-        imm.hideSoftInputFromWindow(view.windowToken, 0)
+    fun hideKeyboard(window: Window, view: View) {
+        WindowInsetsControllerCompat(window, view).hide(WindowInsetsCompat.Type.ime())
     }
 
     /**
-     * Sets the specified image button to the given state, while modifying or
-     * "graying-out" the icon as well
+     * Shows the keyboard.
      *
-     * @param enabled The state of the menu item
-     * @param button  The menu item to modify
+     * @param window the [Window] where the view is attached to.
+     * @param view The [View] that is currently accepting input.
      */
-    fun setImageButtonEnabled(button: ImageButton, enabled: Boolean) {
-        button.isEnabled = enabled
-        button.alpha = if (enabled) 1.0f else 0.4f
+    fun showKeyboard(window: Window, view: View) {
+        WindowInsetsControllerCompat(window, view).show(WindowInsetsCompat.Type.ime())
     }
 
     fun isReachModeEnabled(context: Context): Boolean {
         val prefs = PreferenceManager.getDefaultSharedPreferences(context)
         return prefs.getBoolean("key_reach_mode", false)
-    }
-
-    fun getDimenAttr(context: Context, @StyleRes style: Int, @AttrRes dimen: Int): Float {
-        val args = intArrayOf(dimen)
-        val array = context.obtainStyledAttributes(style, args)
-        val result = array.getDimension(0, 0f)
-        array.recycle()
-        return result
     }
 }

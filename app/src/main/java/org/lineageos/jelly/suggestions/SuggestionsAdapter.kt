@@ -1,18 +1,8 @@
 /*
- * Copyright (C) 2020-2023 The LineageOS Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-FileCopyrightText: 2020-2023 The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
  */
+
 package org.lineageos.jelly.suggestions
 
 import android.content.Context
@@ -30,60 +20,51 @@ import android.widget.TextView
 import org.lineageos.jelly.R
 import org.lineageos.jelly.utils.PrefsUtils
 import org.lineageos.jelly.utils.PrefsUtils.SuggestionProviderType
-import java.util.*
+import java.util.Locale
+import kotlin.reflect.safeCast
 
-class SuggestionsAdapter(private val mContext: Context) : BaseAdapter(), Filterable {
-    private val mInflator: LayoutInflater = LayoutInflater.from(mContext)
-    private val mItems = ArrayList<String>()
-    private val mFilter: ItemFilter
-    private var mQueryText: String? = null
-    override fun getCount(): Int {
-        return mItems.size
-    }
+class SuggestionsAdapter(private val context: Context) : BaseAdapter(), Filterable {
+    private val inflater = LayoutInflater.from(context)
+    private val items = mutableListOf<String>()
+    private val filter = ItemFilter()
+    private var queryText: String? = null
+    override fun getCount() = items.size
 
-    override fun getItem(position: Int): Any {
-        return mItems[position]
-    }
+    override fun getItem(position: Int) = items[position]
 
-    override fun getItemId(position: Int): Long {
-        return 0
-    }
+    override fun getItemId(position: Int) = 0L
 
     override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-        val view = convertView ?: this.mInflator.inflate(R.layout.item_suggestion, parent, false)!!
-        val title = view.findViewById<TextView>(R.id.title)
-        val suggestion = mItems[position]
-        if (mQueryText != null) {
-            val query = mQueryText!!
+        val view = convertView ?: this.inflater.inflate(R.layout.item_suggestion, parent, false)!!
+        val titleTextView = view.findViewById<TextView>(R.id.titleTextView)
+        val suggestion = items[position]
+        queryText?.also { query ->
             val spannable = SpannableStringBuilder(suggestion)
             val lcSuggestion = suggestion.lowercase(Locale.getDefault())
             var queryTextPos = lcSuggestion.indexOf(query)
             while (queryTextPos >= 0) {
-                spannable.setSpan(StyleSpan(Typeface.BOLD),
-                        queryTextPos, queryTextPos + query.length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                spannable.setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    queryTextPos, queryTextPos + query.length,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
                 queryTextPos = lcSuggestion.indexOf(query, queryTextPos + query.length)
             }
-            title.text = spannable
-        } else {
-            title.text = suggestion
+            titleTextView.text = spannable
+        } ?: run {
+            titleTextView.text = suggestion
         }
         return view
     }
 
-    override fun getFilter(): Filter {
-        return mFilter
-    }
+    override fun getFilter(): Filter = filter
 
     private inner class ItemFilter : Filter() {
         override fun performFiltering(constraint: CharSequence?): FilterResults {
             val results = FilterResults()
-            if (constraint.isNullOrBlank()) {
-                return results
-            }
-            val provider = provider
-            val query = constraint.toString().lowercase(Locale.getDefault()).trim { it <= ' ' }
-            if (provider != null) {
+            constraint?.takeUnless { it.isBlank() }?.let {
+                val provider = provider
+                val query = it.toString().lowercase(Locale.getDefault()).trim { it <= ' ' }
                 val items = provider.fetchResults(query)
                 results.count = items.size
                 results.values = items
@@ -92,32 +73,25 @@ class SuggestionsAdapter(private val mContext: Context) : BaseAdapter(), Filtera
         }
 
         override fun publishResults(constraint: CharSequence?, results: FilterResults) {
-            mItems.clear()
-            val values = results.values
-            if (values != null && values is List<*>) {
+            items.clear()
+            List::class.safeCast(results.values)?.let { values ->
                 val items = values.filterIsInstance<String>()
-                mItems.addAll(items)
-                mQueryText = constraint.toString().lowercase(Locale.getDefault()).trim {
+                this@SuggestionsAdapter.items.addAll(items)
+                queryText = constraint.toString().lowercase(Locale.getDefault()).trim {
                     it <= ' '
                 }
             }
             notifyDataSetChanged()
         }
 
-        private val provider: SuggestionProvider?
-            get() {
-                return when (PrefsUtils.getSuggestionProvider(mContext)) {
-                    SuggestionProviderType.BAIDU -> BaiduSuggestionProvider()
-                    SuggestionProviderType.BING -> BingSuggestionProvider()
-                    SuggestionProviderType.DUCK -> DuckSuggestionProvider()
-                    SuggestionProviderType.GOOGLE -> GoogleSuggestionProvider()
-                    SuggestionProviderType.YAHOO -> YahooSuggestionProvider()
-                    else -> null
-                }
+        private val provider: SuggestionProvider
+            get() = when (PrefsUtils.getSuggestionProvider(context)) {
+                SuggestionProviderType.BAIDU -> BaiduSuggestionProvider()
+                SuggestionProviderType.BING -> BingSuggestionProvider()
+                SuggestionProviderType.DUCK -> DuckSuggestionProvider()
+                SuggestionProviderType.GOOGLE -> GoogleSuggestionProvider()
+                SuggestionProviderType.YAHOO -> YahooSuggestionProvider()
+                else -> NoSuggestionProvider()
             }
-    }
-
-    init {
-        mFilter = ItemFilter()
     }
 }

@@ -1,18 +1,8 @@
 /*
- * Copyright (C) 2020-2023 The LineageOS Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-FileCopyrightText: 2020 The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
  */
+
 package org.lineageos.jelly.history
 
 import android.content.ContentResolver
@@ -28,62 +18,64 @@ import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import org.lineageos.jelly.R
 
-class HistoryCallBack(context: Context, deleteListener: OnDeleteListener?) :
-        ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
-    private val mResolver: ContentResolver = context.contentResolver
-    private val mBackground: Drawable
-    private val mDelete: Drawable?
-    private val mDeleteListener: OnDeleteListener?
-    private val mMargin: Int
+class HistoryCallBack(
+    context: Context,
+    private val deleteListener: OnDeleteListener?
+) :
+    ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
+    private val resolver: ContentResolver = context.contentResolver
+    private val background = ColorDrawable(ContextCompat.getColor(context, R.color.colorDelete))
+    private val delete = ContextCompat.getDrawable(context, R.drawable.ic_delete_action)
+    private val margin = context.resources.getDimension(R.dimen.delete_margin).toInt()
 
-    init {
-        mBackground = ColorDrawable(ContextCompat.getColor(context, R.color.colorDelete))
-        mDelete = ContextCompat.getDrawable(context, R.drawable.ic_delete_action)
-        mMargin = context.resources.getDimension(R.dimen.delete_margin).toInt()
-        mDeleteListener = deleteListener
-    }
-
-    override fun onMove(recyclerView: RecyclerView,
-                        viewHolder: RecyclerView.ViewHolder,
-                        target: RecyclerView.ViewHolder): Boolean {
-        return false
-    }
+    override fun onMove(
+        recyclerView: RecyclerView,
+        viewHolder: RecyclerView.ViewHolder,
+        target: RecyclerView.ViewHolder
+    ) = false
 
     override fun onSwiped(holder: RecyclerView.ViewHolder, swipeDir: Int) {
-        val uri = ContentUris.withAppendedId(HistoryProvider.Columns.CONTENT_URI,
-                holder.itemId)
+        val uri = ContentUris.withAppendedId(
+            HistoryProvider.Columns.CONTENT_URI,
+            holder.itemId
+        )
         var values: ContentValues? = null
-        val cursor = mResolver.query(uri, null, null, null, null)
-        if (cursor != null) {
-            if (cursor.moveToFirst()) {
+        val cursor = resolver.query(uri, null, null, null, null)
+        cursor?.let {
+            if (it.moveToFirst()) {
                 values = ContentValues()
                 DatabaseUtils.cursorRowToContentValues(cursor, values)
             }
-            cursor.close()
+            it.close()
         }
-        mResolver.delete(uri, null, null)
-        if (values != null && mDeleteListener != null) {
-            mDeleteListener.onItemDeleted(values)
+        resolver.delete(uri, null, null)
+        if (values != null) {
+            deleteListener?.onItemDeleted(values)
         }
     }
 
-    override fun onChildDraw(c: Canvas, recyclerView: RecyclerView,
-                             viewHolder: RecyclerView.ViewHolder,
-                             dX: Float, dY: Float, actionState: Int, isCurrentlyActive: Boolean) {
+    override fun onChildDraw(
+        c: Canvas, recyclerView: RecyclerView,
+        viewHolder: RecyclerView.ViewHolder,
+        dX: Float, dY: Float, actionState: Int, isCurrentlyActive: Boolean
+    ) {
         val view = viewHolder.itemView
         if (viewHolder.bindingAdapterPosition == -1) {
             return
         }
-        mBackground.setBounds(view.right + dX.toInt(), view.top, view.right,
-                view.bottom)
-        mBackground.draw(c)
-        val iconLeft = view.right - mMargin - mDelete!!.intrinsicWidth
+        background.setBounds(
+            view.right + dX.toInt(), view.top, view.right,
+            view.bottom
+        )
+        background.draw(c)
+        val delete = delete!!
+        val iconLeft = view.right - margin - delete.intrinsicWidth
         val iconTop = view.top +
-                (view.bottom - view.top - mDelete.intrinsicHeight) / 2
-        val iconRight = view.right - mMargin
-        val iconBottom = iconTop + mDelete.intrinsicHeight
-        mDelete.setBounds(iconLeft, iconTop, iconRight, iconBottom)
-        mDelete.draw(c)
+                (view.bottom - view.top - delete.intrinsicHeight) / 2
+        val iconRight = view.right - margin
+        val iconBottom = iconTop + delete.intrinsicHeight
+        delete.setBounds(iconLeft, iconTop, iconRight, iconBottom)
+        delete.draw(c)
         super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
     }
 

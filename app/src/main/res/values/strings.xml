@@ -1,17 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright (C) 2017-2019 The LineageOS Project
-
-     Licensed under the Apache License, Version 2.0 (the "License");
-     you may not use this file except in compliance with the License.
-     You may obtain a copy of the License at
-
-         http://www.apache.org/licenses/LICENSE-2.0
-
-     Unless required by applicable law or agreed to in writing, software
-     distributed under the License is distributed on an "AS IS" BASIS,
-     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-     See the License for the specific language governing permissions and
-     limitations under the License.
+<!--
+     SPDX-FileCopyrightText: 2017-2019 The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
 -->
 <resources>
     <string name="app_name">Browser</string>
@@ -30,6 +20,8 @@
     <string name="menu_favorites">Favorites</string>
     <!-- Menu action: show history list -->
     <string name="menu_history">History</string>
+    <!-- Menu action: show history list -->
+    <string name="menu_downloads">Downloads</string>
     <!-- Menu action: add shortcut of the current page to the launcher -->
     <string name="menu_shortcut">Add shortcut</string>
     <!-- Menu action: show settings -->
@@ -38,10 +30,8 @@
     <string name="menu_download">Download</string>
     <!-- Menu action: open selected link in a new tab -->
     <string name="menu_in_new_tab">Open in new tab</string>
-    <!-- Menu action: enable desktop mode -->
-    <string name="menu_desktop_mode">Switch to desktop site</string>
-    <!-- Menu action: enable phone mode -->
-    <string name="menu_mobile_mode">Switch to mobile site</string>
+    <!-- Menu action: desktop mode -->
+    <string name="menu_desktop_mode">Desktop site</string>
     <!-- Menu action: search in page -->
     <string name="menu_search">Find in page</string>
     <!-- Menu action: print -->
@@ -153,9 +143,9 @@
     <!-- No activity found to open the given url error -->
     <string name="error_no_activity_found">No app can handle this link</string>
 
-    <string translatable="false" name="default_search_engine">https://duckduckgo.com/?q={searchTerms}</string>
-    <string translatable="false" name="default_home_page">https://duckduckgo.com</string>
-    <string translatable="false" name="default_suggestion_provider">DUCK</string>
+    <string name="default_search_engine" translatable="false">https://duckduckgo.com/?q={searchTerms}</string>
+    <string name="default_home_page" translatable="false">https://duckduckgo.com</string>
+    <string name="default_suggestion_provider" translatable="false">DUCK</string>
 
     <!-- Auth dialog: title -->
     <string name="auth_dialog_title">Authentication Required</string>

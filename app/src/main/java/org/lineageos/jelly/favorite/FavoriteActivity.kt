@@ -1,18 +1,8 @@
 /*
- * Copyright (C) 2020 The LineageOS Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-FileCopyrightText: 2020 The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
  */
+
 package org.lineageos.jelly.favorite
 
 import android.content.ContentResolver
@@ -24,6 +14,7 @@ import android.provider.BaseColumns
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.LayoutInflater
+import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -45,45 +36,49 @@ import org.lineageos.jelly.R
 import org.lineageos.jelly.utils.UiUtils
 
 class FavoriteActivity : AppCompatActivity() {
+    // Views
+    private val favoriteEmptyLayout by lazy { findViewById<View>(R.id.favoriteEmptyLayout) }
+    private val favoriteListView by lazy { findViewById<RecyclerView>(R.id.favoriteListView) }
+    private val toolbar by lazy { findViewById<Toolbar>(R.id.toolbar) }
+
     private val uiScope = CoroutineScope(Dispatchers.Main)
-    private lateinit var mList: RecyclerView
-    private lateinit var mEmptyView: View
-    private lateinit var mAdapter: FavoriteAdapter
+    private lateinit var adapter: FavoriteAdapter
 
     override fun onCreate(savedInstance: Bundle?) {
         super.onCreate(savedInstance)
         setContentView(R.layout.activity_favorites)
-        val toolbar = findViewById<Toolbar>(R.id.toolbar)
         setSupportActionBar(toolbar)
-        toolbar.setNavigationIcon(R.drawable.ic_back)
-        toolbar.setNavigationOnClickListener { finish() }
-        mList = findViewById(R.id.favorite_list)
-        mEmptyView = findViewById(R.id.favorite_empty_layout)
-        mAdapter = FavoriteAdapter(this)
+        supportActionBar?.apply {
+            setDisplayHomeAsUpEnabled(true)
+            setDisplayShowHomeEnabled(true)
+        }
+        adapter = FavoriteAdapter(this)
         val loader = LoaderManager.getInstance(this)
         loader.initLoader(0, null, object : LoaderCallbacks<Cursor> {
-            override fun onCreateLoader(id: Int, args: Bundle?): Loader<Cursor> {
-                return CursorLoader(this@FavoriteActivity, FavoriteProvider.Columns.CONTENT_URI,
-                        null, null, null, BaseColumns._ID + " DESC")
-            }
+            override fun onCreateLoader(id: Int, args: Bundle?) = CursorLoader(
+                this@FavoriteActivity, FavoriteProvider.Columns.CONTENT_URI,
+                null, null, null, BaseColumns._ID + " DESC"
+            )
 
             override fun onLoadFinished(loader: Loader<Cursor>, data: Cursor?) {
-                mAdapter.swapCursor(data)
-                if (data != null && data.count == 0) {
-                    mList.visibility = View.GONE
-                    mEmptyView.visibility = View.VISIBLE
+                adapter.swapCursor(data)
+                data?.let {
+                    if (it.count == 0) {
+                        favoriteListView.visibility = View.GONE
+                        favoriteEmptyLayout.visibility = View.VISIBLE
+                    }
                 }
             }
 
             override fun onLoaderReset(loader: Loader<Cursor>) {
-                mAdapter.swapCursor(null)
+                adapter.swapCursor(null)
             }
         })
-        mList.layoutManager = GridLayoutManager(this, 2)
-        mList.itemAnimator = DefaultItemAnimator()
-        mList.adapter = mAdapter
-        val listTop = mList.top
-        mList.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+        favoriteListView.layoutManager = GridLayoutManager(this, 2)
+        favoriteListView.itemAnimator = DefaultItemAnimator()
+        favoriteListView.adapter = adapter
+        val listTop = favoriteListView.top
+        favoriteListView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
                 toolbar.elevation = if (recyclerView.getChildAt(0).top < listTop) {
@@ -95,11 +90,21 @@ class FavoriteActivity : AppCompatActivity() {
         })
     }
 
+    override fun onOptionsItemSelected(item: MenuItem) = when (item.itemId) {
+        android.R.id.home -> {
+            finish()
+            true
+        }
+        else -> {
+            super.onOptionsItemSelected(item)
+        }
+    }
+
     fun editItem(id: Long, title: String?, url: String) {
         val view = LayoutInflater.from(this)
-                .inflate(R.layout.dialog_favorite_edit, LinearLayout(this))
-        val titleEdit = view.findViewById<EditText>(R.id.favorite_edit_title)
-        val urlEdit = view.findViewById<EditText>(R.id.favorite_edit_url)
+            .inflate(R.layout.dialog_favorite_edit, LinearLayout(this))
+        val titleEdit = view.findViewById<EditText>(R.id.favoriteTitleEditText)
+        val urlEdit = view.findViewById<EditText>(R.id.favoriteUrlEditText)
         titleEdit.setText(title)
         urlEdit.setText(url)
         val error = getString(R.string.favorite_edit_error)
@@ -118,36 +123,43 @@ class FavoriteActivity : AppCompatActivity() {
             }
         })
         AlertDialog.Builder(this)
-                .setTitle(R.string.favorite_edit_dialog_title)
-                .setView(view)
-                .setPositiveButton(R.string.favorite_edit_positive
-                ) { dialog: DialogInterface, _: Int ->
-                    val updatedUrl = urlEdit.text.toString()
-                    val updatedTitle = titleEdit.text.toString()
-                    if (url.isEmpty()) {
-                        urlEdit.error = error
-                        urlEdit.requestFocus()
-                    }
-                    uiScope.launch {
-                        updateFavorite(contentResolver, id, updatedTitle,
-                                updatedUrl)
-                    }
-                    dialog.dismiss()
+            .setTitle(R.string.favorite_edit_dialog_title)
+            .setView(view)
+            .setPositiveButton(
+                R.string.favorite_edit_positive
+            ) { dialog: DialogInterface, _: Int ->
+                val updatedUrl = urlEdit.text.toString()
+                val updatedTitle = titleEdit.text.toString()
+                if (url.isEmpty()) {
+                    urlEdit.error = error
+                    urlEdit.requestFocus()
                 }
-                .setNeutralButton(R.string.favorite_edit_delete
-                ) { dialog: DialogInterface, _: Int ->
-                    uiScope.launch {
-                        deleteFavorite(contentResolver, id)
-                    }
-                    dialog.dismiss()
+                uiScope.launch {
+                    updateFavorite(
+                        contentResolver, id, updatedTitle,
+                        updatedUrl
+                    )
                 }
-                .setNegativeButton(android.R.string.cancel
-                ) { dialog: DialogInterface, _: Int -> dialog.dismiss() }
-                .show()
+                dialog.dismiss()
+            }
+            .setNeutralButton(
+                R.string.favorite_edit_delete
+            ) { dialog: DialogInterface, _: Int ->
+                uiScope.launch {
+                    deleteFavorite(contentResolver, id)
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton(
+                android.R.string.cancel
+            ) { dialog: DialogInterface, _: Int -> dialog.dismiss() }
+            .show()
     }
 
-    private suspend fun updateFavorite(contentResolver: ContentResolver, id: Long,
-                                       title: String, url: String) {
+    private suspend fun updateFavorite(
+        contentResolver: ContentResolver, id: Long,
+        title: String, url: String
+    ) {
         withContext(Dispatchers.Default) {
             FavoriteProvider.updateItem(contentResolver, id, title, url)
         }

@@ -1,18 +1,8 @@
 /*
- * Copyright (C) 2020 The LineageOS Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-FileCopyrightText: 2020 The LineageOS Project
+ * SPDX-License-Identifier: Apache-2.0
  */
+
 package org.lineageos.jelly.favorite
 
 import android.content.Context
@@ -26,28 +16,27 @@ import androidx.recyclerview.widget.RecyclerView
 import org.lineageos.jelly.MainActivity
 import org.lineageos.jelly.R
 import org.lineageos.jelly.utils.UiUtils
+import kotlin.reflect.safeCast
 
 class FavoriteHolder(view: View) : RecyclerView.ViewHolder(view) {
-    private val mCard: CardView = view.findViewById(R.id.row_favorite_card)
-    private val mTitle: TextView = view.findViewById(R.id.row_favorite_title)
+    private val rowFavoriteCard = view.findViewById<CardView>(R.id.rowFavoriteCard)
+    private val rowFavoriteTitle = view.findViewById<TextView>(R.id.rowFavoriteTitle)
     fun bind(context: Context, id: Long, title: String?, url: String, color: Int) {
-        val adjustedTitle = if (title.isNullOrEmpty()) {
-            url.split("/").toTypedArray()[2]
-        } else {
-            title
-        }
-        mTitle.text = adjustedTitle
-        mTitle.setTextColor(if (UiUtils.isColorLight(color)) Color.BLACK else Color.WHITE)
-        mCard.setCardBackgroundColor(color)
-        mCard.setOnClickListener {
-            val intent = Intent(context, MainActivity::class.java)
-            intent.data = Uri.parse(url)
+        val adjustedTitle = title?.takeUnless {
+            it.isEmpty()
+        } ?: url.split("/").toTypedArray()[2]
+        this.rowFavoriteTitle.text = adjustedTitle
+        this.rowFavoriteTitle.setTextColor(if (UiUtils.isColorLight(color)) Color.BLACK else Color.WHITE)
+        rowFavoriteCard.setCardBackgroundColor(color)
+        rowFavoriteCard.setOnClickListener {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                data = Uri.parse(url)
+            }
             context.startActivity(intent)
         }
-        mCard.setOnLongClickListener {
-            (context as FavoriteActivity).editItem(id, adjustedTitle, url)
+        rowFavoriteCard.setOnLongClickListener {
+            FavoriteActivity::class.safeCast(context)?.editItem(id, adjustedTitle, url)
             true
         }
     }
-
 }
