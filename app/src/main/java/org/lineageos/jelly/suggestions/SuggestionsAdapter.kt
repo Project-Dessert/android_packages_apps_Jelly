@@ -18,16 +18,17 @@ import android.widget.Filter
 import android.widget.Filterable
 import android.widget.TextView
 import org.lineageos.jelly.R
-import org.lineageos.jelly.utils.PrefsUtils
-import org.lineageos.jelly.utils.PrefsUtils.SuggestionProviderType
+import org.lineageos.jelly.utils.SharedPreferencesExt
 import java.util.Locale
-import kotlin.reflect.safeCast
 
 class SuggestionsAdapter(private val context: Context) : BaseAdapter(), Filterable {
     private val inflater = LayoutInflater.from(context)
-    private val items = mutableListOf<String>()
+    private var items = listOf<String>()
     private val filter = ItemFilter()
     private var queryText: String? = null
+
+    private val sharedPreferencesExt by lazy { SharedPreferencesExt(context) }
+
     override fun getCount() = items.size
 
     override fun getItem(position: Int) = items[position]
@@ -35,7 +36,7 @@ class SuggestionsAdapter(private val context: Context) : BaseAdapter(), Filterab
     override fun getItemId(position: Int) = 0L
 
     override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-        val view = convertView ?: this.inflater.inflate(R.layout.item_suggestion, parent, false)!!
+        val view = convertView ?: inflater.inflate(R.layout.item_suggestion, parent, false)
         val titleTextView = view.findViewById<TextView>(R.id.titleTextView)
         val suggestion = items[position]
         queryText?.also { query ->
@@ -45,7 +46,8 @@ class SuggestionsAdapter(private val context: Context) : BaseAdapter(), Filterab
             while (queryTextPos >= 0) {
                 spannable.setSpan(
                     StyleSpan(Typeface.BOLD),
-                    queryTextPos, queryTextPos + query.length,
+                    queryTextPos,
+                    queryTextPos + query.length,
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
                 )
                 queryTextPos = lcSuggestion.indexOf(query, queryTextPos + query.length)
@@ -61,31 +63,27 @@ class SuggestionsAdapter(private val context: Context) : BaseAdapter(), Filterab
 
     private inner class ItemFilter : Filter() {
         override fun performFiltering(constraint: CharSequence?): FilterResults {
-            val results = FilterResults()
+            val filterResults = FilterResults()
             constraint?.takeUnless { it.isBlank() }?.let {
                 val provider = provider
-                val query = it.toString().lowercase(Locale.getDefault()).trim { it <= ' ' }
-                val items = provider.fetchResults(query)
-                results.count = items.size
-                results.values = items
+                val query = it.toString().lowercase(Locale.getDefault()).trim()
+                val results = provider.fetchResults(query)
+                if (results.isNotEmpty()) {
+                    filterResults.count = results.size
+                    filterResults.values = results
+                    queryText = query
+                    items = results
+                }
             }
-            return results
+            return filterResults
         }
 
         override fun publishResults(constraint: CharSequence?, results: FilterResults) {
-            items.clear()
-            List::class.safeCast(results.values)?.let { values ->
-                val items = values.filterIsInstance<String>()
-                this@SuggestionsAdapter.items.addAll(items)
-                queryText = constraint.toString().lowercase(Locale.getDefault()).trim {
-                    it <= ' '
-                }
-            }
             notifyDataSetChanged()
         }
 
         private val provider: SuggestionProvider
-            get() = when (PrefsUtils.getSuggestionProvider(context)) {
+            get() = when (sharedPreferencesExt.suggestionProvider) {
                 SuggestionProviderType.BAIDU -> BaiduSuggestionProvider()
                 SuggestionProviderType.BING -> BingSuggestionProvider()
                 SuggestionProviderType.DUCK -> DuckSuggestionProvider()

@@ -7,13 +7,12 @@ package org.lineageos.jelly.suggestions
 
 import android.util.Log
 import org.json.JSONArray
-import org.lineageos.jelly.ext.readString
-import java.io.BufferedInputStream
 import java.io.IOException
 import java.io.UnsupportedEncodingException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.nio.charset.Charset
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -73,9 +72,11 @@ internal abstract class SuggestionProvider(private val encoding: String) {
             Log.e(TAG, "Unable to encode the URL", e)
             return filter
         }
+
+        // There could be no suggestions for this query, return an empty list.
         val content = downloadSuggestionsForQuery(query, language)
-            ?: // There are no suggestions for this query, return an empty list.
-            return filter
+            ?.replaceFirst(")]}'", "")
+            ?: return filter
         try {
             parseResults(content, object : ResultCallback {
                 override fun addResult(suggestion: String): Boolean {
@@ -100,38 +101,37 @@ internal abstract class SuggestionProvider(private val encoding: String) {
         query: String,
         language: String
     ): String? {
+        val url = URL(createQueryUrl(query, language))
+        val urlConnection = url.openConnection() as HttpURLConnection
+        urlConnection.addRequestProperty(
+            "Cache-Control",
+            "max-age=$INTERVAL_DAY, max-stale=$INTERVAL_DAY"
+        )
+        urlConnection.addRequestProperty("Accept-Charset", encoding)
         try {
-            val url = URL(createQueryUrl(query, language))
-            val urlConnection = url.openConnection() as HttpURLConnection
-            urlConnection.addRequestProperty(
-                "Cache-Control",
-                "max-age=$INTERVAL_DAY, max-stale=$INTERVAL_DAY"
-            )
-            urlConnection.addRequestProperty("Accept-Charset", encoding)
-            try {
-                BufferedInputStream(urlConnection.inputStream).use {
-                    return it.readString(getEncoding(urlConnection))
-                }
-            } finally {
-                urlConnection.disconnect()
+            val charset = getCharset(urlConnection)
+            urlConnection.inputStream.bufferedReader(charset).use {
+                return it.readText()
             }
         } catch (e: IOException) {
-            Log.e(TAG, "Problem getting search suggestions", e)
+            Log.d(TAG, "Problem getting search suggestions", e)
+        } finally {
+            urlConnection.disconnect()
         }
         return null
     }
 
-    private fun getEncoding(connection: HttpURLConnection): String {
+    private fun getCharset(connection: HttpURLConnection): Charset {
         connection.contentEncoding?.let {
-            return it
+            return Charset.forName(it)
         }
         val contentType = connection.contentType
         for (value in contentType.split(";").toTypedArray().map { str -> str.trim { it <= ' ' } }) {
             if (value.lowercase(Locale.US).startsWith("charset=")) {
-                return value.substring(8)
+                return Charset.forName(value.substring(8))
             }
         }
-        return encoding
+        return Charset.forName(encoding)
     }
 
     internal interface ResultCallback {
