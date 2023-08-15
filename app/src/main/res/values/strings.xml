@@ -6,12 +6,27 @@
 <resources>
     <string name="app_name">Browser</string>
 
+    <!-- URL bar: more button -->
+    <string name="url_bar_more">More</string>
+    <!-- URL bar: search cancel button -->
+    <string name="url_bar_search_cancel">Cancel search</string>
+    <!-- URL bar: search clear button -->
+    <string name="url_bar_search_clear">Clear search</string>
+    <!-- URL bar: search cancel button -->
+    <string name="url_bar_search_previous">Previous</string>
+    <!-- URL bar: search cancel button -->
+    <string name="url_bar_search_next">Next</string>
+
+    <!-- Menu action: go back -->
+    <string name="menu_go_back">Go back</string>
+    <!-- Menu action: go forward -->
+    <string name="menu_go_forward">Go forward</string>
+    <!-- Menu action: refresh page -->
+    <string name="menu_refresh">Refresh page</string>
     <!-- Menu action: create new tab -->
     <string name="menu_new_tab">New tab</string>
     <!-- Menu action: create new incognito tab -->
     <string name="menu_incognito">Incognito tab</string>
-    <!-- Menu action: reload current page -->
-    <string name="menu_reload">Reload</string>
     <!-- Menu action: add current page to favorites -->
     <string name="menu_fav_add">Add to favorites</string>
     <!-- Menu action: share current page -->
@@ -20,7 +35,7 @@
     <string name="menu_favorites">Favorites</string>
     <!-- Menu action: show history list -->
     <string name="menu_history">History</string>
-    <!-- Menu action: show history list -->
+    <!-- Menu action: show downloads -->
     <string name="menu_downloads">Downloads</string>
     <!-- Menu action: add shortcut of the current page to the launcher -->
     <string name="menu_shortcut">Add shortcut</string>

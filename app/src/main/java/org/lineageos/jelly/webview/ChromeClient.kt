@@ -15,9 +15,7 @@ import android.webkit.MimeTypeMap
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
-import android.widget.ProgressBar
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments
 import org.lineageos.jelly.R
 import org.lineageos.jelly.history.HistoryProvider
 import org.lineageos.jelly.ui.UrlBarLayout
@@ -49,14 +47,14 @@ internal class ChromeClient(
         view: WebView, path: ValueCallback<Array<Uri>>,
         params: FileChooserParams
     ): Boolean {
-        val getContent = activity.registerForActivityResult(OpenMultipleDocuments()) {
+        activity.setFileRequestCallback {
             path.onReceiveValue(it.toTypedArray())
         }
 
         try {
-            getContent.launch(params.acceptTypes.mapNotNull {
+            activity.launchFileRequest(params.acceptTypes.mapNotNull {
                 MimeTypeMap.getSingleton().getMimeTypeFromExtension(it)
-            }.toTypedArray())
+            }.toTypedArray().takeIf { it.isNotEmpty() } ?: arrayOf("*/*"))
         } catch (e: ActivityNotFoundException) {
             Toast.makeText(
                 activity, activity.getString(R.string.error_no_activity_found),

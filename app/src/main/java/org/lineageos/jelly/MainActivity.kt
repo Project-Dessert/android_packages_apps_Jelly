@@ -44,6 +44,7 @@ import android.webkit.MimeTypeMap
 import android.webkit.WebChromeClient.CustomViewCallback
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.content.ContextCompat
@@ -82,6 +83,18 @@ class MainActivity : WebViewExtActivity(), SharedPreferences.OnSharedPreferenceC
     private val webView by lazy { findViewById<WebViewExt>(R.id.webView) }
     private val webViewContainerLayout by lazy { findViewById<FrameLayout>(R.id.webViewContainerLayout) }
 
+    private val fileRequest =
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
+            fileRequestCallback.invoke(it)
+        }
+    private lateinit var fileRequestCallback: ((data: List<Uri>) -> Unit)
+    override fun launchFileRequest(input: Array<String>) {
+        fileRequest.launch(input)
+    }
+    override fun setFileRequestCallback(cb: (data: List<Uri>) -> Unit) {
+        fileRequestCallback = cb
+    }
+
     private val urlResolvedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (!intent.hasExtra(Intent.EXTRA_INTENT) ||
@@ -89,6 +102,7 @@ class MainActivity : WebViewExtActivity(), SharedPreferences.OnSharedPreferenceC
             ) {
                 return
             }
+            @Suppress("UnsafeIntentLaunch")
             val resolvedIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)!!
             } else {
@@ -214,7 +228,15 @@ class MainActivity : WebViewExtActivity(), SharedPreferences.OnSharedPreferenceC
 
     override fun onStart() {
         super.onStart()
-        registerReceiver(urlResolvedReceiver, IntentFilter(IntentUtils.EVENT_URL_RESOLVED))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(
+                urlResolvedReceiver, IntentFilter(IntentUtils.EVENT_URL_RESOLVED),
+                RECEIVER_NOT_EXPORTED
+            )
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(urlResolvedReceiver, IntentFilter(IntentUtils.EVENT_URL_RESOLVED))
+        }
     }
 
     override fun onStop() {
@@ -329,21 +351,27 @@ class MainActivity : WebViewExtActivity(), SharedPreferences.OnSharedPreferenceC
         }
     }
 
-    override fun downloadFileAsk(url: String?, contentDisposition: String?, mimeType: String?) {
+    override fun downloadFileAsk(
+        url: String?,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?,
+        contentLength: Long
+    ) {
         val fileName = UrlUtils.guessFileName(url, contentDisposition, mimeType)
         AlertDialog.Builder(this)
             .setTitle(R.string.download_title)
             .setMessage(getString(R.string.download_message, fileName))
             .setPositiveButton(
                 getString(R.string.download_positive)
-            ) { _: DialogInterface?, _: Int -> fetchFile(url, fileName) }
+            ) { _: DialogInterface?, _: Int -> fetchFile(url, userAgent, fileName) }
             .setNegativeButton(
                 getString(R.string.dismiss)
             ) { dialog: DialogInterface, _: Int -> dialog.dismiss() }
             .show()
     }
 
-    private fun fetchFile(url: String?, fileName: String) {
+    private fun fetchFile(url: String?, userAgent: String?, fileName: String) {
         val request = try {
             DownloadManager.Request(Uri.parse(url))
         } catch (e: IllegalArgumentException) {
@@ -366,6 +394,12 @@ class MainActivity : WebViewExtActivity(), SharedPreferences.OnSharedPreferenceC
                 MimeTypeMap.getFileExtensionFromUrl(url)
             )
         )
+        userAgent?.let {
+            request.addRequestHeader("User-Agent", it)
+        }
+        CookieManager.getInstance().getCookie(url)?.takeUnless { it.isEmpty() }?.let {
+            request.addRequestHeader("Cookie", it)
+        }
         getSystemService(DownloadManager::class.java).enqueue(request)
     }
 
@@ -392,7 +426,7 @@ class MainActivity : WebViewExtActivity(), SharedPreferences.OnSharedPreferenceC
         }
         if (shouldAllowDownload) {
             downloadLayout.setOnClickListener {
-                downloadFileAsk(url, null, null)
+                downloadFileAsk(url, webView.settings.userAgentString, null, null, 0)
                 sheet.dismiss()
             }
             downloadLayout.visibility = View.VISIBLE
